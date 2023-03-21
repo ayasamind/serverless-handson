@@ -1,0 +1,7 @@
+
+.css-dasnyc-MuiImageListItemBar-title {
+    font-size: 2rem;
+    text-overflow: ellipsis;
+    overflow: visible;
+    white-space: nowrap;
+  }

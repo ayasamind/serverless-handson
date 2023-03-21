@@ -11,7 +11,7 @@ serverless.yml
     S3BUCKET: 任意のバケット名
 ```
 
-＃# デプロイ
+## デプロイ
 
 ```
 $ npm -g install serverless

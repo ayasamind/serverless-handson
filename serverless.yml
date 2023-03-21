@@ -6,8 +6,8 @@ provider:
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-northeast-1'}
   environment: # 環境変数の定義
-    CONNECTIONS_TABLE: HandsOnDynamoTable
-    S3BUCKET: 2023-engineer-cafe-serverless-handson
+    CONNECTIONS_TABLE: '*****************'
+    S3BUCKET: '*****************'
 
   iamRoleStatements:
     - Effect: Allow
