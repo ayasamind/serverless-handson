@@ -1,0 +1,125 @@
+service: s3-trigger-websocket
+
+provider:
+  name: aws
+  runtime: nodejs16.x
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'ap-northeast-1'}
+  environment: # 環境変数の定義
+    CONNECTIONS_TABLE: HandsOnDynamoTable
+    S3BUCKET: 2023-engineer-cafe-serverless-handson
+
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:Scan
+        - dynamodb:PutItem
+        - dynamodb:GetItem
+        - dynamodb:DeleteItem
+      Resource: "arn:aws:dynamodb:${opt:region, 'ap-northeast-1'}:*:table/${self:provider.environment.CONNECTIONS_TABLE}"
+
+functions:
+  notifyWebSocket:
+    handler: handler.notifyWebSocket
+    events:
+      - s3:
+          bucket: ${self:provider.environment.S3BUCKET}
+          event: s3:ObjectCreated:Put
+
+  onConnect: # onConnect Lambda関数を追加
+    handler: handler.onConnect
+    events:
+      - websocket:
+          route: $connect
+
+  onDisconnect: # onDisconnect Lambda関数を追加
+    handler: handler.onDisconnect
+    events:
+      - websocket:
+          route: $disconnect
+
+resources:
+  Resources:
+    HandsOnWebSocketApi:
+      Type: AWS::ApiGatewayV2::Api
+      Properties:
+        Name: 'HandsOnWebSocketApi'
+        ProtocolType: WEBSOCKET
+        RouteSelectionExpression: $request.body.action
+
+    WebSocketConnectRoute:
+      Type: AWS::ApiGatewayV2::Route
+      Properties:
+        ApiId: !Ref HandsOnWebSocketApi
+        RouteKey: $connect
+        AuthorizationType: NONE
+        Target: !Join [ "/", [ "integrations", !Ref onConnectLambdaIntegration ] ] # onConnect関数を指定
+
+    WebSocketDisconnectRoute:
+      Type: AWS::ApiGatewayV2::Route
+      Properties:
+        ApiId: !Ref HandsOnWebSocketApi
+        RouteKey: $disconnect
+        AuthorizationType: NONE
+        Target: !Join [ "/", [ "integrations", !Ref onDisconnectLambdaIntegration ] ] # onDisconnect関数を指定
+
+    # Integrations for new Lambda functions
+    onConnectLambdaIntegration:
+      Type: AWS::ApiGatewayV2::Integration
+      Properties:
+        ApiId: !Ref HandsOnWebSocketApi
+        IntegrationType: AWS_PROXY
+        IntegrationUri: !Join
+          - ''
+          - - 'arn:aws:apigateway:'
+            - !Ref 'AWS::Region'
+            - :lambda:path/2015-03-31/functions/
+            - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${self:service}-${self:provider.stage}-onConnect'
+            - /invocations
+
+    onDisconnectLambdaIntegration:
+      Type: AWS::ApiGatewayV2::Integration
+      Properties:
+        ApiId: !Ref HandsOnWebSocketApi
+        IntegrationType: AWS_PROXY
+        IntegrationUri: !Join
+          - ''
+          - - 'arn:aws:apigateway:'
+            - !Ref 'AWS::Region'
+            - :lambda:path/2015-03-31/functions/
+            - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${self:service}-${self:provider.stage}-onDisconnect'
+            - /invocations
+
+    HandsOnWebSocketApiDeployment:
+      Type: AWS::ApiGatewayV2::Deployment
+      DependsOn: WebSocketConnectRoute
+      Properties:
+        ApiId: !Ref HandsOnWebSocketApi
+
+    WebSocketApiStage:
+      Type: AWS::ApiGatewayV2::Stage
+      Properties:
+        ApiId: !Ref HandsOnWebSocketApi
+        DeploymentId: !Ref HandsOnWebSocketApiDeployment
+        StageName: ${self:provider.stage}
+
+    ConnectionsTable:
+      Type: 'AWS::DynamoDB::Table'
+      DeletionPolicy: Retain
+      Properties:
+        TableName: ${self:provider.environment.CONNECTIONS_TABLE}
+        AttributeDefinitions:
+          - AttributeName: connectionId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: connectionId
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+
+plugins:
+  - serverless-webpack
+
+custom:
+  webpack:
+    webpackConfig: ./webpack.config.js
+    includeModules: true
